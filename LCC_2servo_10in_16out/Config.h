@@ -2,9 +2,9 @@
 #define CONFIG_H
 
 // To set a new nodeid edit the next line
-#define NODE_ADDRESS  0x05,0x01,0x01,0x01,0x8E,0x04  // must be unique from an address space owned by you or DIY
+#define NODE_ADDRESS  0x05,0x01,0x01,0x01,0x8E,0x04  // must be unique from an address space owned by you for DIY
 
-// To Force Reset EEPROM to Factory Defaults set this value to 1, else 0.
+// To Force Reset EEPROM to Factory Defaults set this value to 1, else 0 to go into operation mode.
 #define RESET_TO_FACTORY_DEFAULTS 1
 
 /*
@@ -19,6 +19,9 @@
 /* Debugging -- uncomment to activate debugging statements: */
 //#define DEBUG Serial
 
+/*
+  Un comment out if you wish to use the node as a standalone node.
+*/
 //#define USEGCSERIAL
 //#define NOCAN
 
