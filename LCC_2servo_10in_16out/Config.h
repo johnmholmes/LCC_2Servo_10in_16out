@@ -5,7 +5,7 @@
 #define NODE_ADDRESS  0x05,0x01,0x01,0x01,0x8E,0x04  // must be unique from an address space owned by you or DIY
 
 // To Force Reset EEPROM to Factory Defaults set this value to 1, else 0.
-#define RESET_TO_FACTORY_DEFAULTS 0
+#define RESET_TO_FACTORY_DEFAULTS 1
 
 /*
   ======================================================================================
@@ -19,8 +19,8 @@
 /* Debugging -- uncomment to activate debugging statements: */
 //#define DEBUG Serial
 
-#define USEGCSERIAL
-#define NOCAN
+//#define USEGCSERIAL
+//#define NOCAN
 
 #ifdef USEGCSERIAL
   #include "GCSerial.h"
