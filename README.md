@@ -27,7 +27,7 @@ This is the first node to be released in the beyond the basic series. They offer
 You will need to have the OpenLCB_Single_Thread library installed for use with the Arduino IDE. This is available in the Arduino library manager.
 
 - 2 servos on pins D32, and D33.
-- 2 Frog realy pins D25 for servo 1 and D26 for servo 2. It has been programmed for Active HIGH relays.
+- 2 Frog relay pins D25 for servo 1 and D26 for servo 2. It has been programmed for Active HIGH relays.
 - 10 inputs that can be used for sensors or using a push button to control toggled logic states.
   - Righthand side of the shield.
   - D4.
