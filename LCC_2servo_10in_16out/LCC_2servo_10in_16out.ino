@@ -437,52 +437,95 @@ void inputBackgroundTask(void * parameter) {
       uint16_t inputBaseIndex = (NUM_SERVOS * 7) + (i * 2);
 
       if (operationalMode == 0) {
+        // ==================== DIRECT STATE TRACKING ====================
         if (currentReading != lastInputState[i]) {
+          // Input just changed - start new debounce timer
           lastInputState[i] = currentReading;
-          uint8_t configurationDelay = (currentReading == LOW) ? NODECONFIG.read(EEADDR(inputs[i].onDelay)) : NODECONFIG.read(EEADDR(inputs[i].offDelay));
-          inputTimer[i] = configurationDelay; 
+          uint8_t configurationDelay = (currentReading == LOW) 
+              ? NODECONFIG.read(EEADDR(inputs[i].onDelay)) 
+              : NODECONFIG.read(EEADDR(inputs[i].offDelay));
+          
+          inputTimer[i] = configurationDelay;
+          
+          // Immediate action when delay = 0
+          if (inputTimer[i] == 0) {
+            stableInputState[i] = currentReading;
+            if (stableInputState[i] == HIGH) {
+              OpenLcb.produce(inputBaseIndex);      // HIGH event
+            } else {
+              OpenLcb.produce(inputBaseIndex + 1);  // LOW event
+            }
+          }
         } 
         else if (currentReading != stableInputState[i]) {
-          if (inputTimer[i] > 0) inputTimer[i]--;
+          // Still waiting for stable state
+          if (inputTimer[i] > 0) {
+            inputTimer[i]--;
+          }
           if (inputTimer[i] == 0) {
-            stableInputState[i] = currentReading; 
-            if (stableInputState[i] == HIGH) OpenLcb.produce(inputBaseIndex); 
-            else OpenLcb.produce(inputBaseIndex + 1); 
+            stableInputState[i] = currentReading;
+            if (stableInputState[i] == HIGH) {
+              OpenLcb.produce(inputBaseIndex);
+            } else {
+              OpenLcb.produce(inputBaseIndex + 1);
+            }
           }
         }
       } 
       else {
+        // ==================== PUSHBUTTON TOGGLE MODE ====================
         if (currentReading != lastInputState[i]) {
           lastInputState[i] = currentReading;
+
           if (currentReading == LOW) {
+            // Button pressed - start onDelay
             uint8_t valDelay = NODECONFIG.read(EEADDR(inputs[i].onDelay));
             inputTimer[i] = valDelay;
-            
+
             if (valDelay == 0 && stableInputState[i] == HIGH) {
-              stableInputState[i] = LOW; 
+              // Immediate toggle on press when delay=0
+              stableInputState[i] = LOW;
               virtualToggleState[i] = !virtualToggleState[i];
-              if (virtualToggleState[i] == true) OpenLcb.produce(inputBaseIndex + 1); 
-              else OpenLcb.produce(inputBaseIndex); 
+              
+              if (virtualToggleState[i]) {
+                OpenLcb.produce(inputBaseIndex + 1);  // LOW / "on" event
+              } else {
+                OpenLcb.produce(inputBaseIndex);      // HIGH / "off" event
+              }
               inputTimer[i] = NODECONFIG.read(EEADDR(inputs[i].offDelay));
             }
           } 
           else {
-            if (stableInputState[i] == LOW) stableInputState[i] = HIGH;
-            else inputTimer[i] = 0;
+            // Button released
+            if (stableInputState[i] == LOW) {
+              stableInputState[i] = HIGH;
+            } else {
+              inputTimer[i] = 0;
+            }
           }
         } 
         else if (currentReading == LOW && stableInputState[i] == HIGH) {
-          if (inputTimer[i] > 0) inputTimer[i]--;
+          // Button is being held down - countdown for debounce
+          if (inputTimer[i] > 0) {
+            inputTimer[i]--;
+          }
           if (inputTimer[i] == 0) {
-            stableInputState[i] = LOW; 
+            stableInputState[i] = LOW;
             virtualToggleState[i] = !virtualToggleState[i];
-            if (virtualToggleState[i] == true) OpenLcb.produce(inputBaseIndex + 1); 
-            else OpenLcb.produce(inputBaseIndex); 
+            
+            if (virtualToggleState[i]) {
+              OpenLcb.produce(inputBaseIndex + 1);
+            } else {
+              OpenLcb.produce(inputBaseIndex);
+            }
             inputTimer[i] = NODECONFIG.read(EEADDR(inputs[i].offDelay));
           }
-        }
+        } 
         else {
-          if (inputTimer[i] > 0) inputTimer[i]--;
+          // No interesting activity - just decrement any remaining timer
+          if (inputTimer[i] > 0) {
+            inputTimer[i]--;
+          }
         }
       }
     }
