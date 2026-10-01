@@ -14,8 +14,8 @@
   #endif // USEGCSERIAL
   
   #define EEPROMSIZE 4096
-  #define EEPROMbegin { EEPROM.begin(EEPROMSIZE); dP("\nEEPROM begin "); dP(EEPROMSIZE)
-  #define EEPROMcommit { EEPROM.commit(); dP("EEPROM COMMIT"); }
+  #define EEPROMbegin EEPROM.begin(EEPROMSIZE); // this sets the size of the emulated eeprom. 
+  #define EEPROMcommit EEPROM.commit();
 
 #elif defined(ATOM_BOARD)
   #define BOARD "Atom"
@@ -28,8 +28,8 @@
   #endif // USEGCSERIAL
   #include <ESP32Servo.h>
   #define EEPROMSIZE 4096
-  #define EEPROMbegin { EEPROM.begin(EEPROMSIZE); dP("\nEEPROM begin "); dP(EEPROMSIZE)
-  #define EEPROMcommit { EEPROM.commit(); dP("EEPROM COMMIT"); }
+  #define EEPROMbegin EEPROM.begin(EEPROMSIZE); // this sets the size of the emulated eeprom. 
+  #define EEPROMcommit EEPROM.commit();
 
 #else
   #error "No board selected"
