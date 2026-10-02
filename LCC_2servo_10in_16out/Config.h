@@ -28,8 +28,8 @@
 /*
   Un comment out if you wish to use the node as a standalone node.
 */
-#define USEGCSERIAL
-#define NOCAN
+//#define USEGCSERIAL
+//#define NOCAN
 
 #ifdef USEGCSERIAL
   #include "GCSerial.h"
