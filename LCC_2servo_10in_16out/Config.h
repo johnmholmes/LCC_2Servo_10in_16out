@@ -11,7 +11,7 @@
 //#define NODE_ADDRESS  0x05,0x01,0x01,0x01,0x8E,0x04  // must be unique from an address space owned by you for DIY
 
 // To Force Reset EEPROM to Factory Defaults set this value to 1, else 0 to go into operation mode.
-#define RESET_TO_FACTORY_DEFAULTS 0
+#define RESET_TO_FACTORY_DEFAULTS 1
 
 /*
   ======================================================================================
