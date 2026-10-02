@@ -61,7 +61,7 @@ const uint8_t inputPins[NUM_INPUTS] = { 4, 16, 17, 5, 18, 19, 13, 12, 14, 27 };
 #define MANU " OpenLCB "                    // The manufacturer of node
 #define MODEL BOARD " 2Servo10in16out "     // The default model of the board
 #define HWVERSION " ESP 1 Beyond "          // Hardware version
-#define SWVERSION " 1.0.4 "                 // Software version
+#define SWVERSION " 1.0.7 "                 // Software version
 
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
