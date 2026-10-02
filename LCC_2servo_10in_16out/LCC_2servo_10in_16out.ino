@@ -6,18 +6,8 @@
 #include <Wire.h>
 #include <MCP23017.h>
 
-#define OLCB_NO_BLUE_GOLD // Do not delete
-
-// Define Frog Relay Output Pins
-#define FROG_PIN_0  25  // Frog relay for Servo 0 (Servo Pin 32)
-#define FROG_PIN_1  26  // Frog relay for Servo 1 (Servo Pin 33)
-
-// Define Discrete Pull-up Input Pins (10 inputs)
-#define NUM_INPUTS 10
-const uint8_t inputPins[NUM_INPUTS] = { 4, 16, 17, 5, 18, 19, 13, 12, 14, 27 }; 
-
 // Define MCP23017 Output Configuration (Bertrand Lemasle library)
-#define NUM_OUTPUTS 16
+
 #define MCP23017_ADDRESS 0x20
 MCP23017 mcp = MCP23017(MCP23017_ADDRESS);
 
@@ -36,7 +26,7 @@ const char configDefInfo[] PROGMEM =
         <name>Turnout Servo Speed Configuration</name>
          <description>Ensure Servos are powered from a separate 5 volt power supply. Not from the shield</description>
         <int size='1'>
-          <name>Speed 5-50 (delay between steps)</name>
+          <name>Speed 5-50 (5 slowest 50 Fastest)</name>
           <min>5</min><max>50</max>
           <hints><slider tickSpacing='15' immediate='yes' showValue='yes'> </slider></hints>
         </int>
@@ -65,7 +55,7 @@ const char configDefInfo[] PROGMEM =
     </group>
     <group replication=')" N(NUM_INPUTS) R"('>
         <name>Inputs Using INPUT_PULLUP To Hold The Pin HIGH 3.3 Volts.</name>
-        <repname>D4 </repname>
+        <repname>D4</repname>
         <repname>D16</repname>
         <repname>D17</repname>
         <repname>D5</repname>
@@ -89,21 +79,27 @@ const char configDefInfo[] PROGMEM =
 
         <int size='1'>
           <name>On-Delay / Transit LOW (0 to 25.5 seconds)</name>
-          <description>Value multiplied by 100ms. Time signal must stay LOW before event transmits.</description>
+          <description>Value x 100ms. The pin must stay LOW this long before the event is sent (minimum about 20ms debounce even at 0). In pushbutton mode this is how long the button must be held to count as a press.</description>
           <min>0</min><max>255</max>
           <hints><slider tickSpacing='65' immediate='yes' showValue='yes'> </slider></hints>
         </int>
 
         <int size='1'>
           <name>Off-Delay / Transit HIGH (0 to 25.5 seconds)</name>
-          <description>Value multiplied by 100ms. Time signal must stay HIGH before event transmits.</description>
+          <description>Value x 100ms. The pin must stay HIGH this long before the event is sent (minimum about 20ms debounce even at 0). In pushbutton mode no event is sent on release, but the button must stay released this long before the next press is accepted.</description>
           <min>0</min><max>255</max>
           <hints><slider tickSpacing='65' immediate='yes' showValue='yes'> </slider></hints>
         </int>
 
-        <eventid><name>Input Transited HIGH Event </name></eventid>
-        <eventid><name>Input Transited LOW Event </name></eventid>
-    </group>
+        <eventid>
+          <name>Input Transited HIGH Event</name>
+          <description>Direct mode: sent when the input goes HIGH. Pushbutton mode: sent on every 2nd press (2nd, 4th, ...).</description>
+        </eventid>
+        <eventid>
+          <name>Input Transited LOW Event</name>
+          <description>Direct mode: sent when the input goes LOW. Pushbutton mode: sent on every 1st press (1st, 3rd, ...).</description>
+        </eventid>
+    </group>"
     <group replication=')" N(NUM_OUTPUTS) R"('>
         <name>MCP23017 Outputs (Address 0x20)</name>
         <repname>A0 </repname>
@@ -162,8 +158,7 @@ typedef struct {
         EventID setLowEid;
       } outputs[NUM_OUTPUTS];
 
-  uint8_t curpos[NUM_SERVOS]; 
-} MemStruct;                
+  } MemStruct;                
 
 uint8_t curpos[NUM_SERVOS]; 
 
@@ -224,7 +219,7 @@ extern "C" {
     };
 
     extern const char SNII_const_data[] PROGMEM = 
-    "\001" MANU "\000" MODEL "\000" HWVERSION "\000" SWVERSION " " OlcbCommonVersion;
+    "\001" MANU "\000" MODEL "\000" HWVERSION "\000" SWVERSION "Lib " OlcbCommonVersion;
 }
 
 uint8_t protocolIdentValue[6] = {   
@@ -239,7 +234,7 @@ uint8_t servoTarget[NUM_SERVOS];
 uint8_t servopin[]  = { SERVOPINS };
 
 #define SERVO_DELAY_OFFSET  EEADDR(servodelay)
-bool posdirty = false;
+//bool posdirty = false;
 
 void servoSet(); 
 
@@ -320,31 +315,32 @@ uint8_t userState(uint16_t index) {
     return UNKNOWN;
 }  
 
+// Only change: servo command fields are written in a safe order so the servo task
+// never sees a half-written command (midCrossed reset BEFORE the target, moving flag LAST).
+
 void pceCallback(uint16_t index) {
     dP("\npceCallback, index="); dP((uint16_t)index);
-    
+
+    // ---- Servo position events (consumed: +0..+2 per servo) ----
     if (index < (NUM_SERVOS * 7)) {
         int ch = index / 7;
         int localIndex = index % 7;
         if (ch < NUM_SERVOS && localIndex < 3) {
-            curpos[ch] = localIndex;
+            curpos[ch]     = localIndex;
+            midCrossed[ch] = false;     // reset before the new target is visible
             servoTarget[ch] = NODECONFIG.read( EEADDR(servos[ch].pos[localIndex].angle) );
-            servoMoving[ch] = true; 
-            midCrossed[ch] = false; 
+            servoMoving[ch] = true;     // last: the task now sees a complete command
         }
         return;
     }
 
+    // ---- Output HIGH/LOW events (consumed) ----
     uint16_t outputStartOffset = (NUM_SERVOS * 7) + (NUM_INPUTS * 2);
     if (index >= outputStartOffset && index < (outputStartOffset + (NUM_OUTPUTS * 2))) {
-        int outIdx = (index - outputStartOffset) / 2;
+        int outIdx    = (index - outputStartOffset) / 2;
         int stateType = (index - outputStartOffset) % 2;
 
-        if (stateType == 0) {
-            targetOutputState[outIdx] = HIGH;
-        } else {
-            targetOutputState[outIdx] = LOW;
-        }
+        targetOutputState[outIdx] = (stateType == 0) ? HIGH : LOW;
         return;
     }
 }
@@ -361,172 +357,132 @@ void userConfigWritten(uint32_t address, uint16_t length, uint16_t func)
   servoSet();
 }
 
+// Drop-in replacement for servoBackgroundTask() in the 2 servo / 10 in / 16 out sketch.
+// Event index layout per servo (unchanged): base = i * 7
+//   +0..+2 consumed position events, +3 reached Closed, +4 reached Thrown,
+//   +5 passed midpoint moving to Thrown, +6 passed midpoint moving to Closed.
+// Frog relay: LOW = Closed side, HIGH = Thrown side (as in servoStartUp()).
+
 void servoBackgroundTask(void * parameter) {
+  static uint32_t lastmove = 0;
+
   for(;;) {
+    // Speed: higher slider value = bigger step per 20 ms tick = faster.
     uint8_t sliderVal = NODECONFIG.read( SERVO_DELAY_OFFSET );
-    if (sliderVal < 1) sliderVal = 1; 
-    uint8_t stepSize = sliderVal / 5; 
+    if (sliderVal < 1) sliderVal = 1;
+    uint8_t stepSize = sliderVal / 5;
     if (stepSize < 1) stepSize = 1;
 
     vTaskDelay(pdMS_TO_TICKS(20));
-    static long lastmove = 0;
-    
-    for(int i=0; i<NUM_SERVOS; i++) {
-      uint8_t midAngle = NODECONFIG.read( EEADDR(servos[i].pos[1].angle) );
-      uint8_t oldActual = servoActual[i]; 
 
-      if(servoTarget[i] == servoActual[i] ) {
+    for (int i = 0; i < NUM_SERVOS; i++) {
+      const uint16_t base = i * 7;
+      const uint8_t midAngle  = NODECONFIG.read( EEADDR(servos[i].pos[1].angle) );
+      const uint8_t oldActual = servoActual[i];
+      const uint8_t target    = servoTarget[i];  // snapshot: another task may change it mid-iteration
+
+      // ---- Arrived ----
+      if (target == oldActual) {
         if (servoMoving[i]) {
-          servoMoving[i] = false; 
-          uint16_t servoBaseIndex = i * 7; 
-          if (curpos[i] == 0) OpenLcb.produce(servoBaseIndex + 3); 
-          else if (curpos[i] == 2) OpenLcb.produce(servoBaseIndex + 4); 
+          servoMoving[i] = false;
+          // Force the frog relay to the correct side on arrival, even if the
+          // midpoint crossing was never detected (odd midpoint angle, config edit...).
+          if (curpos[i] == 0) {
+            digitalWrite(frogPins[i], LOW);
+            OpenLcb.produce(base + 3);   // reached Closed
+          } else if (curpos[i] == 2) {
+            digitalWrite(frogPins[i], HIGH);
+            OpenLcb.produce(base + 4);   // reached Thrown
+          }
+          // curpos == 1 (midpoint position): no event, frog left as is.
         }
         continue;
       }
-      
-      if(servoTarget[i] > servoActual[i]) {
-        if ((servoTarget[i] - servoActual[i]) > stepSize) servoActual[i] += stepSize;
-        else servoActual[i] = servoTarget[i]; 
+
+      // ---- Step towards the target ----
+      if (target > oldActual) {
+        servoActual[i] = ((target - oldActual) > stepSize) ? (uint8_t)(oldActual + stepSize) : target;
+      } else {
+        servoActual[i] = ((oldActual - target) > stepSize) ? (uint8_t)(oldActual - stepSize) : target;
       }
-      else if(servoTarget[i] < servoActual[i]) {
-        if ((servoActual[i] - servoTarget[i]) > stepSize) servoActual[i] -= stepSize;
-        else servoActual[i] = servoTarget[i]; 
+      const uint8_t newActual = servoActual[i];
+
+      // ---- Midpoint crossing (frog relay + event) ----
+      // Inclusive comparisons so a move that STARTS exactly on midAngle still counts.
+      // The servo has moved (newActual != oldActual), so this cannot fire while idle.
+      if (servoMoving[i] && !midCrossed[i] && (curpos[i] == 0 || curpos[i] == 2)) {
+        const bool crossed = (oldActual <= midAngle && newActual >= midAngle) ||
+                             (oldActual >= midAngle && newActual <= midAngle);
+        if (crossed) {
+          midCrossed[i] = true;
+          if (curpos[i] == 2) {
+            digitalWrite(frogPins[i], HIGH);
+            OpenLcb.produce(base + 5);   // passed midpoint moving to Thrown
+          } else {
+            digitalWrite(frogPins[i], LOW);
+            OpenLcb.produce(base + 6);   // passed midpoint moving to Closed
+          }
+        }
       }
 
-      if (servoMoving[i] && !midCrossed[i]) {
-        if (curpos[i] == 2) { 
-          if ((oldActual < midAngle && servoActual[i] >= midAngle) || (oldActual > midAngle && servoActual[i] <= midAngle)) {
-             midCrossed[i] = true;
-             digitalWrite(frogPins[i], HIGH); 
-             OpenLcb.produce((i * 7) + 5);
-          }
-        }
-        else if (curpos[i] == 0) {
-          if ((oldActual > midAngle && servoActual[i] <= midAngle) || (oldActual < midAngle && servoActual[i] >= midAngle)) {
-             midCrossed[i] = true;
-             digitalWrite(frogPins[i], LOW);  
-             OpenLcb.produce((i * 7) + 6);
-          }
-        }
-      }
-      
-      if(!servo[i].attached()) { 
+      // ---- Drive the servo ----
+      if (!servo[i].attached()) {
         servo[i].attach(servopin[i]);
         vTaskDelay(pdMS_TO_TICKS(50));
       }
-      servo[i].write(servoActual[i]);
+      servo[i].write(newActual);
       lastmove = millis();
-      posdirty = true;
+      //posdirty = true;
     }
 
-    if( lastmove && (millis()-lastmove)>1000) {
-      for(int i=0; i<NUM_SERVOS; i++) servo[i].detach();
+    // Release the servos 1 s after the last movement (stops hum/jitter and saves power).
+    if (lastmove && (millis() - lastmove) > 1000) {
+      for (int i = 0; i < NUM_SERVOS; i++) servo[i].detach();
       lastmove = 0;
     }
   }
 }
 
+
 void inputBackgroundTask(void * parameter) {
   for(;;) {
-    vTaskDelay(pdMS_TO_TICKS(100)); 
-    
-    for(int i = 0; i < NUM_INPUTS; i++) {
-      bool currentReading = digitalRead(inputPins[i]);
-      uint8_t operationalMode = NODECONFIG.read(EEADDR(inputs[i].mode));
-      uint16_t inputBaseIndex = (NUM_SERVOS * 7) + (i * 2);
+    vTaskDelay(pdMS_TO_TICKS(INPUT_TICK_MS));
 
-      if (operationalMode == 0) {
-        // ==================== DIRECT STATE TRACKING ====================
-        if (currentReading != lastInputState[i]) {
-          // Input just changed - start new debounce timer
-          lastInputState[i] = currentReading;
-          uint8_t configurationDelay = (currentReading == LOW) 
-              ? NODECONFIG.read(EEADDR(inputs[i].onDelay)) 
-              : NODECONFIG.read(EEADDR(inputs[i].offDelay));
-          
-          inputTimer[i] = configurationDelay;
-          
-          // Immediate action when delay = 0
-          if (inputTimer[i] == 0) {
-            stableInputState[i] = currentReading;
-            if (stableInputState[i] == HIGH) {
-              OpenLcb.produce(inputBaseIndex);      // HIGH event
-            } else {
-              OpenLcb.produce(inputBaseIndex + 1);  // LOW event
-            }
-          }
-        } 
-        else if (currentReading != stableInputState[i]) {
-          // Still waiting for stable state
-          if (inputTimer[i] > 0) {
-            inputTimer[i]--;
-          }
-          if (inputTimer[i] == 0) {
-            stableInputState[i] = currentReading;
-            if (stableInputState[i] == HIGH) {
-              OpenLcb.produce(inputBaseIndex);
-            } else {
-              OpenLcb.produce(inputBaseIndex + 1);
-            }
-          }
-        }
-      } 
-      else {
-        // ==================== PUSHBUTTON TOGGLE MODE ====================
-        if (currentReading != lastInputState[i]) {
-          lastInputState[i] = currentReading;
+    for (int i = 0; i < NUM_INPUTS; i++) {
+      const bool reading = digitalRead(inputPins[i]);
 
-          if (currentReading == LOW) {
-            // Button pressed - start onDelay
-            uint8_t valDelay = NODECONFIG.read(EEADDR(inputs[i].onDelay));
-            inputTimer[i] = valDelay;
+      // Back at the accepted level: cancel any pending change.
+      if (reading == stableInputState[i]) {
+        inputTimer[i] = 0;
+        continue;
+      }
 
-            if (valDelay == 0 && stableInputState[i] == HIGH) {
-              // Immediate toggle on press when delay=0
-              stableInputState[i] = LOW;
-              virtualToggleState[i] = !virtualToggleState[i];
-              
-              if (virtualToggleState[i]) {
-                OpenLcb.produce(inputBaseIndex + 1);  // LOW / "on" event
-              } else {
-                OpenLcb.produce(inputBaseIndex);      // HIGH / "off" event
-              }
-              inputTimer[i] = NODECONFIG.read(EEADDR(inputs[i].offDelay));
-            }
-          } 
-          else {
-            // Button released
-            if (stableInputState[i] == LOW) {
-              stableInputState[i] = HIGH;
-            } else {
-              inputTimer[i] = 0;
-            }
-          }
-        } 
-        else if (currentReading == LOW && stableInputState[i] == HIGH) {
-          // Button is being held down - countdown for debounce
-          if (inputTimer[i] > 0) {
-            inputTimer[i]--;
-          }
-          if (inputTimer[i] == 0) {
-            stableInputState[i] = LOW;
-            virtualToggleState[i] = !virtualToggleState[i];
-            
-            if (virtualToggleState[i]) {
-              OpenLcb.produce(inputBaseIndex + 1);
-            } else {
-              OpenLcb.produce(inputBaseIndex);
-            }
-            inputTimer[i] = NODECONFIG.read(EEADDR(inputs[i].offDelay));
-          }
-        } 
-        else {
-          // No interesting activity - just decrement any remaining timer
-          if (inputTimer[i] > 0) {
-            inputTimer[i]--;
-          }
-        }
+      // Reading differs from the accepted level: count consecutive samples.
+      inputTimer[i]++;
+
+      // On-Delay when going LOW, Off-Delay when going HIGH (EEPROM read only while a change is pending).
+      uint8_t units;
+      if (reading == LOW) units = NODECONFIG.read(EEADDR(inputs[i].onDelay));
+      else                units = NODECONFIG.read(EEADDR(inputs[i].offDelay));
+
+      uint32_t needed = (uint32_t)units * INPUT_TICKS_PER_UNIT;
+      if (needed < INPUT_MIN_DEBOUNCE) needed = INPUT_MIN_DEBOUNCE;
+      if (inputTimer[i] < needed) continue;
+
+      // ---- Change accepted ----
+      stableInputState[i] = reading;
+      inputTimer[i] = 0;
+
+      const uint16_t base = (NUM_SERVOS * 7) + (i * 2);   // +0 = HIGH event, +1 = LOW event
+      const uint8_t  mode = NODECONFIG.read(EEADDR(inputs[i].mode));
+
+      if (mode == 0) {
+        // Follow the input.
+        OpenLcb.produce(reading == HIGH ? base : base + 1);
+      } else if (reading == LOW) {
+        // Pushbutton toggle: only the press counts, the release just re-arms the input.
+        virtualToggleState[i] = !virtualToggleState[i];
+        OpenLcb.produce(virtualToggleState[i] ? base + 1 : base);
       }
     }
   }
@@ -609,7 +565,6 @@ void setup()
   }
 
   EEPROMbegin;
-  NodeID nodeid(NODE_ADDRESS);      
   Olcb_init(nodeid, RESET_TO_FACTORY_DEFAULTS);
   reportConfig();
 

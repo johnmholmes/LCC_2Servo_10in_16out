@@ -4,6 +4,8 @@
 
 */
 
+#define OLCB_NO_BLUE_GOLD // Do not delete
+
 #if defined(ESP32_BOARD)
   #define BOARD "ESP32"
   #define SERVOPINS 32, 33
@@ -14,8 +16,8 @@
   #endif // USEGCSERIAL
   
   #define EEPROMSIZE 4096
-  #define EEPROMbegin EEPROM.begin(EEPROMSIZE); // this sets the size of the emulated eeprom. 
-  #define EEPROMcommit EEPROM.commit();
+  #define EEPROMbegin { EEPROM.begin(EEPROMSIZE); dP("\nEEPROM begin "); dP(EEPROMSIZE)
+  #define EEPROMcommit { EEPROM.commit(); dP("EEPROM COMMIT"); }
 
 #elif defined(ATOM_BOARD)
   #define BOARD "Atom"
@@ -28,8 +30,8 @@
   #endif // USEGCSERIAL
   #include <ESP32Servo.h>
   #define EEPROMSIZE 4096
-  #define EEPROMbegin EEPROM.begin(EEPROMSIZE); // this sets the size of the emulated eeprom. 
-  #define EEPROMcommit EEPROM.commit();
+  #define EEPROMbegin { EEPROM.begin(EEPROMSIZE); dP("\nEEPROM begin "); dP(EEPROMSIZE)
+  #define EEPROMcommit { EEPROM.commit(); dP("EEPROM COMMIT"); }
 
 #else
   #error "No board selected"
