@@ -8,12 +8,18 @@
 
 // Define MCP23017 Output Configuration (Bertrand Lemasle library)
 
-#define MCP23017_ADDRESS 0x20
+#define MCP23017_ADDRESS 0x27
 MCP23017 mcp = MCP23017(MCP23017_ADDRESS);
 
 // Track target states for the 16 outputs to safely pass from OpenLCB callbacks to the background task
 volatile bool targetOutputState[NUM_OUTPUTS];
 bool currentOutputState[NUM_OUTPUTS];
+
+// Output modes: steady uses targetOutputState; the flash modes are driven from a shared
+// millis() phase so every flashing output blinks in sync.
+enum OutputMode : uint8_t { OUT_STEADY = 0, OUT_FLASH_1S = 1, OUT_FLASH_250MS = 2 };
+volatile uint8_t targetOutputMode[NUM_OUTPUTS];   // zero-initialised = OUT_STEADY
+volatile uint8_t startupServo = 0;   // servos with a higher index wait their turn at boot
 
 extern "C" {
     #define N(x) xN(x)     
@@ -99,28 +105,42 @@ const char configDefInfo[] PROGMEM =
           <name>Input Transited LOW Event</name>
           <description>Direct mode: sent when the input goes LOW. Pushbutton mode: sent on every 1st press (1st, 3rd, ...).</description>
         </eventid>
-    </group>"
+    </group>
     <group replication=')" N(NUM_OUTPUTS) R"('>
-        <name>MCP23017 Outputs (Address 0x20)</name>
-        <repname>A0 </repname>
-        <repname>A1 </repname>
-        <repname>A2 </repname>
-        <repname>A3 </repname>
-        <repname>A4 </repname>
-        <repname>A5 </repname>
-        <repname>A6 </repname>
-        <repname>A7 </repname>
-        <repname>B0 </repname>
-        <repname>B1 </repname>
-        <repname>B2 </repname>
-        <repname>B3 </repname>
-        <repname>B4 </repname>
-        <repname>B5 </repname>
-        <repname>B6 </repname>
-        <repname>B7 </repname>
+        <name>MCP23017 Outputs (Address )" N(MCP23017_ADDRESS) R"()</name>
+        <repname>A0</repname>
+        <repname>A1</repname>
+        <repname>A2</repname>
+        <repname>A3</repname>
+        <repname>A4</repname>
+        <repname>A5</repname>
+        <repname>A6</repname>
+        <repname>A7</repname>
+        <repname>B0</repname>
+        <repname>B1</repname>
+        <repname>B2</repname>
+        <repname>B3</repname>
+        <repname>B4</repname>
+        <repname>B5</repname>
+        <repname>B6</repname>
+        <repname>B7</repname>
         <string size='24'><name>Output Description / Label</name></string>
-        <eventid><name>Output HIGH Event</name></eventid>
-        <eventid><name>Output LOW Event</name></eventid>
+        <eventid>
+          <name>Output HIGH Event</name>
+          <description>Sets the output steadily HIGH.</description>
+        </eventid>
+        <eventid>
+          <name>Output LOW Event</name>
+          <description>Sets the output steadily LOW.</description>
+        </eventid>
+        <eventid>
+          <name>Output Flash 1 Second Event</name>
+          <description>Flashes the output: 1 second on, 1 second off, until another output event is received.</description>
+        </eventid>
+        <eventid>
+          <name>Output Flash 250ms Event</name>
+          <description>Flashes the output: 250ms on, 250ms off, until another output event is received.</description>
+        </eventid>
     </group>
     )" CDIfooter;
 } 
@@ -156,6 +176,8 @@ typedef struct {
         char desc[24];
         EventID setHighEid;
         EventID setLowEid;
+        EventID flash1sEid;
+        EventID flash250Eid;
       } outputs[NUM_OUTPUTS];
 
   } MemStruct;                
@@ -175,7 +197,7 @@ uint32_t inputTimer[NUM_INPUTS] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 const uint8_t frogPins[NUM_SERVOS] = { FROG_PIN_0, FROG_PIN_1 };
 
 extern "C" {
-    // Total registered Node events: 14 (Servos) + 20 (Inputs) + 32 (Outputs) = 66
+    // Total registered Node events: 14 (Servos) + 20 (Inputs) + 64 (Outputs) = 98
     const EIDTab eidtab[NUM_EVENT] PROGMEM = {
         // ================= SERVO 0 (7 Events) =================
         CEID(servos[0].pos[0].eid), CEID(servos[0].pos[1].eid), CEID(servos[0].pos[2].eid),          
@@ -199,23 +221,23 @@ extern "C" {
         PEID(inputs[8].highStateEid), PEID(inputs[8].lowStateEid),
         PEID(inputs[9].highStateEid), PEID(inputs[9].lowStateEid),
 
-        // ================= OUTPUTS 0-15 (32 Events) =================
-        CEID(outputs[0].setHighEid), CEID(outputs[0].setLowEid),
-        CEID(outputs[1].setHighEid), CEID(outputs[1].setLowEid),
-        CEID(outputs[2].setHighEid), CEID(outputs[2].setLowEid),
-        CEID(outputs[3].setHighEid), CEID(outputs[3].setLowEid),
-        CEID(outputs[4].setHighEid), CEID(outputs[4].setLowEid),
-        CEID(outputs[5].setHighEid), CEID(outputs[5].setLowEid),
-        CEID(outputs[6].setHighEid), CEID(outputs[6].setLowEid),
-        CEID(outputs[7].setHighEid), CEID(outputs[7].setLowEid),
-        CEID(outputs[8].setHighEid), CEID(outputs[8].setLowEid),
-        CEID(outputs[9].setHighEid), CEID(outputs[9].setLowEid),
-        CEID(outputs[10].setHighEid), CEID(outputs[10].setLowEid),
-        CEID(outputs[11].setHighEid), CEID(outputs[11].setLowEid),
-        CEID(outputs[12].setHighEid), CEID(outputs[12].setLowEid),
-        CEID(outputs[13].setHighEid), CEID(outputs[13].setLowEid),
-        CEID(outputs[14].setHighEid), CEID(outputs[14].setLowEid),
-        CEID(outputs[15].setHighEid), CEID(outputs[15].setLowEid)
+        // ================= OUTPUTS 0-15 (64 Events) =================
+        CEID(outputs[0].setHighEid), CEID(outputs[0].setLowEid), CEID(outputs[0].flash1sEid), CEID(outputs[0].flash250Eid),
+        CEID(outputs[1].setHighEid), CEID(outputs[1].setLowEid), CEID(outputs[1].flash1sEid), CEID(outputs[1].flash250Eid),
+        CEID(outputs[2].setHighEid), CEID(outputs[2].setLowEid), CEID(outputs[2].flash1sEid), CEID(outputs[2].flash250Eid),
+        CEID(outputs[3].setHighEid), CEID(outputs[3].setLowEid), CEID(outputs[3].flash1sEid), CEID(outputs[3].flash250Eid),
+        CEID(outputs[4].setHighEid), CEID(outputs[4].setLowEid), CEID(outputs[4].flash1sEid), CEID(outputs[4].flash250Eid),
+        CEID(outputs[5].setHighEid), CEID(outputs[5].setLowEid), CEID(outputs[5].flash1sEid), CEID(outputs[5].flash250Eid),
+        CEID(outputs[6].setHighEid), CEID(outputs[6].setLowEid), CEID(outputs[6].flash1sEid), CEID(outputs[6].flash250Eid),
+        CEID(outputs[7].setHighEid), CEID(outputs[7].setLowEid), CEID(outputs[7].flash1sEid), CEID(outputs[7].flash250Eid),
+        CEID(outputs[8].setHighEid), CEID(outputs[8].setLowEid), CEID(outputs[8].flash1sEid), CEID(outputs[8].flash250Eid),
+        CEID(outputs[9].setHighEid), CEID(outputs[9].setLowEid), CEID(outputs[9].flash1sEid), CEID(outputs[9].flash250Eid),
+        CEID(outputs[10].setHighEid), CEID(outputs[10].setLowEid), CEID(outputs[10].flash1sEid), CEID(outputs[10].flash250Eid),
+        CEID(outputs[11].setHighEid), CEID(outputs[11].setLowEid), CEID(outputs[11].flash1sEid), CEID(outputs[11].flash250Eid),
+        CEID(outputs[12].setHighEid), CEID(outputs[12].setLowEid), CEID(outputs[12].flash1sEid), CEID(outputs[12].flash250Eid),
+        CEID(outputs[13].setHighEid), CEID(outputs[13].setLowEid), CEID(outputs[13].flash1sEid), CEID(outputs[13].flash250Eid),
+        CEID(outputs[14].setHighEid), CEID(outputs[14].setLowEid), CEID(outputs[14].flash1sEid), CEID(outputs[14].flash250Eid),
+        CEID(outputs[15].setHighEid), CEID(outputs[15].setLowEid), CEID(outputs[15].flash1sEid), CEID(outputs[15].flash250Eid)
     };
 
     extern const char SNII_const_data[] PROGMEM = 
@@ -302,14 +324,15 @@ uint8_t userState(uint16_t index) {
         }
         return INVALID;
     }
-    else if (index < (NUM_SERVOS * 7) + (NUM_INPUTS * 2) + (NUM_OUTPUTS * 2)) {
-        int outIdx = (index - (NUM_SERVOS * 7) - (NUM_INPUTS * 2)) / 2;
-        int stateType = (index - (NUM_SERVOS * 7) - (NUM_INPUTS * 2)) % 2;
+    else if (index < (NUM_SERVOS * 7) + (NUM_INPUTS * 2) + (NUM_OUTPUTS * 4)) {
+        int outIdx    = (index - (NUM_SERVOS * 7) - (NUM_INPUTS * 2)) / 4;
+        int stateType = (index - (NUM_SERVOS * 7) - (NUM_INPUTS * 2)) % 4;
+        uint8_t mode  = targetOutputMode[outIdx];
 
-        bool trackingState = currentOutputState[outIdx];
-        if (stateType == 0 && trackingState == HIGH) return VALID;
-        if (stateType == 1 && trackingState == LOW) return VALID;
-        return INVALID;
+        if (stateType == 0) return (mode == OUT_STEADY && currentOutputState[outIdx] == HIGH) ? VALID : INVALID;
+        if (stateType == 1) return (mode == OUT_STEADY && currentOutputState[outIdx] == LOW)  ? VALID : INVALID;
+        if (stateType == 2) return (mode == OUT_FLASH_1S)    ? VALID : INVALID;
+        return                     (mode == OUT_FLASH_250MS) ? VALID : INVALID;
     }
     
     return UNKNOWN;
@@ -334,13 +357,18 @@ void pceCallback(uint16_t index) {
         return;
     }
 
-    // ---- Output HIGH/LOW events (consumed) ----
+    // ---- Output events (consumed): +0 HIGH, +1 LOW, +2 flash 1 s, +3 flash 250 ms ----
     uint16_t outputStartOffset = (NUM_SERVOS * 7) + (NUM_INPUTS * 2);
-    if (index >= outputStartOffset && index < (outputStartOffset + (NUM_OUTPUTS * 2))) {
-        int outIdx    = (index - outputStartOffset) / 2;
-        int stateType = (index - outputStartOffset) % 2;
+    if (index >= outputStartOffset && index < (outputStartOffset + (NUM_OUTPUTS * 4))) {
+        int outIdx    = (index - outputStartOffset) / 4;
+        int stateType = (index - outputStartOffset) % 4;
 
-        targetOutputState[outIdx] = (stateType == 0) ? HIGH : LOW;
+        switch (stateType) {
+          case 0: targetOutputState[outIdx] = HIGH; targetOutputMode[outIdx] = OUT_STEADY;      break;
+          case 1: targetOutputState[outIdx] = LOW;  targetOutputMode[outIdx] = OUT_STEADY;      break;
+          case 2:                                   targetOutputMode[outIdx] = OUT_FLASH_1S;    break;
+          case 3:                                   targetOutputMode[outIdx] = OUT_FLASH_250MS; break;
+        }
         return;
     }
 }
@@ -376,6 +404,10 @@ void servoBackgroundTask(void * parameter) {
     vTaskDelay(pdMS_TO_TICKS(20));
 
     for (int i = 0; i < NUM_SERVOS; i++) {
+      // Startup gate: servos with a higher index wait their turn at boot.
+      // Once every servo has settled once, startupServo == NUM_SERVOS and this never triggers.
+      if (i > startupServo) continue;
+
       const uint16_t base = i * 7;
       const uint8_t midAngle  = NODECONFIG.read( EEADDR(servos[i].pos[1].angle) );
       const uint8_t oldActual = servoActual[i];
@@ -396,6 +428,9 @@ void servoBackgroundTask(void * parameter) {
           }
           // curpos == 1 (midpoint position): no event, frog left as is.
         }
+        // Release the next servo at startup. Deliberately outside the servoMoving check so a
+        // servo that is already at its target counts as settled and cannot stall the sequence.
+        if (i == startupServo) startupServo = startupServo + 1;
         continue;
       }
 
@@ -432,7 +467,6 @@ void servoBackgroundTask(void * parameter) {
       }
       servo[i].write(newActual);
       lastmove = millis();
-      //posdirty = true;
     }
 
     // Release the servos 1 s after the last movement (stops hum/jitter and saves power).
@@ -490,13 +524,22 @@ void inputBackgroundTask(void * parameter) {
 
 void outputBackgroundTask(void * parameter) {
   for(;;) {
-    vTaskDelay(pdMS_TO_TICKS(50)); 
-    
-    for(int i = 0; i < NUM_OUTPUTS; i++) {
-      if (targetOutputState[i] != currentOutputState[i]) {
-        currentOutputState[i] = targetOutputState[i];
-        // Bertrand's library handles 0-15 sequentially using standard HIGH/LOW macros
-        mcp.digitalWrite(i, currentOutputState[i] ? HIGH : LOW);
+    vTaskDelay(pdMS_TO_TICKS(25));          // fine enough for 250 ms flashing
+    const uint32_t now = millis();
+
+    for (int i = 0; i < NUM_OUTPUTS; i++) {
+      bool desired;
+      switch (targetOutputMode[i]) {
+        case OUT_FLASH_1S:    desired = (((now / 1000) & 1) == 0); break;  // 1 s on, 1 s off
+        case OUT_FLASH_250MS: desired = (((now / 250)  & 1) == 0); break;  // 250 ms on, 250 ms off
+        default:              desired = targetOutputState[i];      break;  // steady
+      }
+
+      // Only touch the I2C bus when the pin actually has to change.
+      // Bertrand's library handles 0-15 sequentially using standard HIGH/LOW macros.
+      if (desired != currentOutputState[i]) {
+        currentOutputState[i] = desired;
+        mcp.digitalWrite(i, desired ? HIGH : LOW);
       }
     }
   }
@@ -561,6 +604,7 @@ void setup()
     mcp.pinMode(i, OUTPUT);
     mcp.digitalWrite(i, LOW); 
     targetOutputState[i] = LOW;
+    targetOutputMode[i]  = OUT_STEADY;
     currentOutputState[i] = LOW;
   }
 
