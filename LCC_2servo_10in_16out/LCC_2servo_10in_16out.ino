@@ -8,7 +8,7 @@
 
 // Define MCP23017 Output Configuration (Bertrand Lemasle library)
 
-#define MCP23017_ADDRESS 0x27
+#define MCP23017_ADDRESS 0x20
 MCP23017 mcp = MCP23017(MCP23017_ADDRESS);
 
 // Track target states for the 16 outputs to safely pass from OpenLCB callbacks to the background task
