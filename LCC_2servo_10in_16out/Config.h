@@ -2,7 +2,7 @@
 #define CONFIG_H
 
 // To set a new nodeid based on your MERG membership number, edit the next two lines only
-#define MERG_NUMBER 25345 // substitute this example membership number with your own number(in decimal)
+#define MERG_NUMBER 20400 // substitute this example membership number with your own number(in decimal)
 #define NODE_INDEX 1     // Change this to a unique number for each node. (0-255)
 
 #define NODE_ADDRESS 0x03, 0x04, (MERG_NUMBER >> 16), (MERG_NUMBER >> 8), (MERG_NUMBER & 0xFF), NODE_INDEX // Donot change this
@@ -55,13 +55,13 @@ const uint8_t inputPins[NUM_INPUTS] = { 4, 16, 17, 5, 18, 19, 13, 12, 14, 27 };
 
 #define NUM_OUTPUTS 16
 
-#define NUM_EVENT ((NUM_SERVOS * 7) + (NUM_INPUTS * 2) + (NUM_OUTPUTS * 2))
+#define NUM_EVENT ((NUM_SERVOS * 7) + (NUM_INPUTS * 2) + (NUM_OUTPUTS * 4))   // outputs: HIGH, LOW, flash 1s, flash 250ms
 
 // Board definitions
 #define MANU " OpenLCB "                    // The manufacturer of node
 #define MODEL BOARD " 2Servo10in16out "     // The default model of the board
 #define HWVERSION " ESP 1 Beyond "          // Hardware version
-#define SWVERSION " 1.0.7 "                 // Software version
+#define SWVERSION " 1.0.8 "                 // Software version
 
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)

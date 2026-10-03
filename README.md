@@ -42,14 +42,14 @@ You will need to have the OpenLCB_Single_Thread library installed for use with t
   - D14.
   - D27.
 
-- This is a node that uses an i2c 0x20 addressed MCP23017 to give you 16 outputs with either HIGH or LOW state for LED indication for various layout items.
+- This is a node that uses an i2c 0x20 addressed MCP23017 to give you 16 outputs with either HIGH, LOW, Flash 1 Second, Flash 1/4 Second. state for LED indication for various layout items.
   - A0 to A7
   - B0 to B7
   - These pins can source a maximium of about 20 milliamps so current limiting resistors are required to protect the module.
  
 - Board Manager used for testing ESP32 by Espressif version 3.3.10
 - Third party Libraries required to be installed.
-- You need to have the OpenLCB_Single_Thread Library Version 0.1.19 
+- You need to have the OpenLCB_Single_Thread Library Version 0.1.22
 - ESP32Servo.h needs to be installed from the Arduino Library Manager version 3.2.1
 - ACAN_ESP32 3.0.3
 
